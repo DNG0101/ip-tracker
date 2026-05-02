@@ -1,0 +1,788 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Visitor Intelligence</title>
+
+  <!-- Leaflet CSS (integrity hash verified) -->
+  <link
+    rel="stylesheet"
+    href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+    integrity="sha384-sHL9NAb7lN7rfvG5lfHpm643Xkcjzp4jFvuavGOndn6pjVqS6ny56CAt3nsEVT4H"
+    crossorigin="anonymous"
+  />
+
+  <style>
+    /* ── CSS Custom Properties ─────────────────────────────────────────── */
+    :root {
+      --bg:        #f4f6fb;
+      --surface:   #ffffff;
+      --border:    #e2e8f0;
+      --text:      #1a202c;
+      --muted:     #64748b;
+      --accent:    #3b82f6;
+      --accent-h:  #2563eb;
+      --danger:    #ef4444;
+      --warn:      #f59e0b;
+      --success:   #10b981;
+      --radius:    12px;
+      --shadow:    0 2px 16px rgba(0,0,0,.08);
+      --transition: .25s ease;
+    }
+    [data-theme="dark"] {
+      --bg:      #0f172a;
+      --surface: #1e293b;
+      --border:  #334155;
+      --text:    #f1f5f9;
+      --muted:   #94a3b8;
+      --shadow:  0 2px 16px rgba(0,0,0,.4);
+    }
+
+    /* ── Reset & Base ──────────────────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html { scroll-behavior: smooth; }
+    body {
+      font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      transition: background var(--transition), color var(--transition);
+      line-height: 1.6;
+    }
+
+    /* ── Layout ────────────────────────────────────────────────────────── */
+    .app-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 1rem 1.5rem;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
+    .app-header h1 {
+      font-size: 1.15rem;
+      font-weight: 700;
+      letter-spacing: -.02em;
+    }
+    .app-header h1 span { color: var(--accent); }
+
+    main {
+      max-width: 960px;
+      margin: 0 auto;
+      padding: 1.5rem 1rem 3rem;
+      display: grid;
+      gap: 1.25rem;
+    }
+
+    /* ── Cards ─────────────────────────────────────────────────────────── */
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      overflow: hidden;
+      transition: background var(--transition), border var(--transition);
+    }
+    .card-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: .9rem 1.25rem;
+      border-bottom: 1px solid var(--border);
+      gap: .75rem;
+    }
+    .card-title {
+      font-size: .95rem;
+      font-weight: 600;
+    }
+    .card-body { padding: 1.25rem; }
+
+    /* ── Badge ─────────────────────────────────────────────────────────── */
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: .35rem;
+      padding: .25rem .65rem;
+      border-radius: 999px;
+      font-size: .72rem;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+    .badge-ip  { background: #dbeafe; color: #1d4ed8; }
+    .badge-gps { background: #d1fae5; color: #065f46; }
+    [data-theme="dark"] .badge-ip  { background: #1e3a5f; color: #93c5fd; }
+    [data-theme="dark"] .badge-gps { background: #064e3b; color: #6ee7b7; }
+    .badge-dot {
+      width: 7px; height: 7px;
+      border-radius: 50%;
+      background: currentColor;
+      animation: pulse 2s infinite;
+    }
+    @keyframes pulse {
+      0%,100% { opacity: 1; } 50% { opacity: .4; }
+    }
+
+    /* ── Data Grid ─────────────────────────────────────────────────────── */
+    .data-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+      gap: .75rem;
+    }
+    .data-item { display: flex; flex-direction: column; gap: .15rem; }
+    .data-label {
+      font-size: .72rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: .05em;
+      color: var(--muted);
+    }
+    .data-value {
+      font-size: .92rem;
+      font-weight: 500;
+      color: var(--text);
+      word-break: break-all;
+    }
+    .data-value.mono {
+      font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+      font-size: .8rem;
+    }
+    .skeleton {
+      background: linear-gradient(90deg, var(--border) 25%, var(--bg) 50%, var(--border) 75%);
+      background-size: 200% 100%;
+      animation: shimmer 1.5s infinite;
+      border-radius: 4px;
+      height: 1.1em;
+      width: 80%;
+    }
+    @keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+
+    /* ── Map ───────────────────────────────────────────────────────────── */
+    #map {
+      height: 300px;
+      width: 100%;
+      border-radius: 0 0 var(--radius) var(--radius);
+    }
+
+    /* ── Buttons ───────────────────────────────────────────────────────── */
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: .45rem;
+      padding: .55rem 1.1rem;
+      border-radius: 8px;
+      font-size: .875rem;
+      font-weight: 600;
+      cursor: pointer;
+      border: none;
+      transition: all var(--transition);
+      white-space: nowrap;
+    }
+    .btn:disabled { opacity: .55; cursor: not-allowed; }
+    .btn-primary {
+      background: var(--accent);
+      color: #fff;
+    }
+    .btn-primary:hover:not(:disabled) { background: var(--accent-h); }
+    .btn-ghost {
+      background: transparent;
+      color: var(--muted);
+      border: 1px solid var(--border);
+    }
+    .btn-ghost:hover:not(:disabled) { background: var(--bg); color: var(--text); }
+
+    /* Spinner */
+    .spinner {
+      width: 16px; height: 16px;
+      border: 2px solid rgba(255,255,255,.3);
+      border-top-color: #fff;
+      border-radius: 50%;
+      animation: spin .7s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── Alerts / Error ────────────────────────────────────────────────── */
+    .alert {
+      padding: .85rem 1.1rem;
+      border-radius: 8px;
+      font-size: .875rem;
+      display: flex;
+      align-items: flex-start;
+      gap: .65rem;
+      line-height: 1.5;
+    }
+    .alert-error   { background: #fef2f2; color: #991b1b; border: 1px solid #fecaca; }
+    .alert-warn    { background: #fffbeb; color: #92400e; border: 1px solid #fde68a; }
+    .alert-info    { background: #eff6ff; color: #1e40af; border: 1px solid #bfdbfe; }
+    [data-theme="dark"] .alert-error { background: #450a0a; color: #fca5a5; border-color: #7f1d1d; }
+    [data-theme="dark"] .alert-warn  { background: #451a03; color: #fcd34d; border-color: #78350f; }
+    [data-theme="dark"] .alert-info  { background: #0c1a3d; color: #93c5fd; border-color: #1e3a5f; }
+
+    /* ── Privacy Banner ────────────────────────────────────────────────── */
+    #privacy-banner {
+      position: fixed;
+      bottom: 1rem;
+      left: 50%;
+      transform: translateX(-50%);
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      padding: .85rem 1.25rem;
+      max-width: 520px;
+      width: calc(100% - 2rem);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+      z-index: 500;
+      font-size: .83rem;
+      color: var(--muted);
+    }
+    #privacy-banner.hidden { display: none; }
+
+    /* ── Timestamp ─────────────────────────────────────────────────────── */
+    .timestamp-row {
+      font-size: .78rem;
+      color: var(--muted);
+      display: flex;
+      align-items: center;
+      gap: .35rem;
+    }
+
+    /* ── Dark toggle ───────────────────────────────────────────────────── */
+    .theme-toggle {
+      background: none;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: .4rem .7rem;
+      cursor: pointer;
+      color: var(--muted);
+      font-size: 1rem;
+      line-height: 1;
+      transition: all var(--transition);
+    }
+    .theme-toggle:hover { background: var(--bg); color: var(--text); }
+
+    /* ── Token display ─────────────────────────────────────────────────── */
+    .token-row {
+      display: flex;
+      align-items: center;
+      gap: .5rem;
+      flex-wrap: wrap;
+    }
+
+    /* Responsive */
+    @media (max-width: 480px) {
+      .card-header { flex-wrap: wrap; }
+      .data-grid { grid-template-columns: 1fr 1fr; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- ── Header ──────────────────────────────────────────────────────────── -->
+<header class="app-header">
+  <h1>Visitor <span>Intelligence</span></h1>
+  <div style="display:flex;align-items:center;gap:.75rem;">
+    <span id="header-timestamp" class="timestamp-row" aria-live="polite"></span>
+    <button class="theme-toggle" id="theme-toggle" aria-label="Toggle dark/light mode" title="Toggle theme">🌙</button>
+  </div>
+</header>
+
+<!-- ── Main Content ─────────────────────────────────────────────────────── -->
+<main>
+
+  <!-- Status / Error alerts -->
+  <div id="alert-area"></div>
+
+  <!-- Location Source Card -->
+  <div class="card">
+    <div class="card-header">
+      <span class="card-title">Location Source</span>
+      <span id="source-badge" class="badge badge-ip">
+        <span class="badge-dot"></span>
+        IP-based approximate location
+      </span>
+    </div>
+    <div class="card-body" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:.75rem;">
+      <p style="font-size:.875rem;color:var(--muted);max-width:460px;">
+        Your location is currently derived from your IP address. For a more precise location, click the button below to share GPS coordinates.
+      </p>
+      <button class="btn btn-primary" id="gps-btn" aria-label="Get precise GPS location">
+        📍 Get Precise Location
+      </button>
+    </div>
+  </div>
+
+  <!-- IP Geo Card -->
+  <div class="card">
+    <div class="card-header">
+      <span class="card-title">📡 Network &amp; Geo</span>
+    </div>
+    <div class="card-body">
+      <div class="data-grid" id="geo-grid">
+        <!-- Populated by JS -->
+        <div class="data-item"><div class="data-label">City</div><div class="skeleton"></div></div>
+        <div class="data-item"><div class="data-label">Region</div><div class="skeleton"></div></div>
+        <div class="data-item"><div class="data-label">Country</div><div class="skeleton"></div></div>
+        <div class="data-item"><div class="data-label">Timezone</div><div class="skeleton"></div></div>
+        <div class="data-item"><div class="data-label">ISP</div><div class="skeleton"></div></div>
+        <div class="data-item"><div class="data-label">Data Center</div><div class="skeleton"></div></div>
+        <div class="data-item"><div class="data-label">Coordinates</div><div class="skeleton"></div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Device Card -->
+  <div class="card">
+    <div class="card-header">
+      <span class="card-title">💻 Device &amp; Browser</span>
+    </div>
+    <div class="card-body">
+      <div class="data-grid" id="device-grid">
+        <div class="data-item"><div class="data-label">Browser</div><div class="skeleton"></div></div>
+        <div class="data-item"><div class="data-label">OS</div><div class="skeleton"></div></div>
+        <div class="data-item"><div class="data-label">Device Type</div><div class="skeleton"></div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- GPS Merge Card (shown after GPS) -->
+  <div class="card" id="gps-card" style="display:none;">
+    <div class="card-header">
+      <span class="card-title">🛰 GPS Coordinates</span>
+    </div>
+    <div class="card-body">
+      <div class="data-grid" id="gps-grid"></div>
+    </div>
+  </div>
+
+  <!-- Privacy Token -->
+  <div class="card">
+    <div class="card-header">
+      <span class="card-title">🔐 Privacy Token</span>
+    </div>
+    <div class="card-body">
+      <p style="font-size:.8rem;color:var(--muted);margin-bottom:.75rem;">
+        An anonymised SHA-256 token derived from your IP and User-Agent. Your raw IP is never stored.
+      </p>
+      <div class="token-row">
+        <span id="visitor-token" class="data-value mono skeleton" style="width:100%;"></span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Map -->
+  <div class="card">
+    <div class="card-header">
+      <span class="card-title">🗺 Map</span>
+    </div>
+    <div id="map"></div>
+  </div>
+
+</main>
+
+<!-- ── Privacy Banner ────────────────────────────────────────────────────── -->
+<div id="privacy-banner" role="status">
+  <span>🔒 We use Cloudflare's edge network to show your approximate location. No raw data is stored.</span>
+  <button class="btn btn-ghost" id="privacy-dismiss" style="flex-shrink:0;">Dismiss</button>
+</div>
+
+<!-- Leaflet JS -->
+<script
+  src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+  integrity="sha384-cxOPjt7s7Iz04uaHJceBmS+qpjv2JkIHNVcuOrM+YHwZOmJGBXI00mdUXEq65HTH"
+  crossorigin="anonymous"
+></script>
+
+<script>
+/* ───────────────────────────────────────────────────────────────────────────
+   Configuration — replace WORKER_URL before deployment
+─────────────────────────────────────────────────────────────────────────── */
+const WORKER_URL = "WORKER_URL"; // e.g. "https://my-worker.myname.workers.dev"
+
+/* ───────────────────────────────────────────────────────────────────────────
+   Theme
+─────────────────────────────────────────────────────────────────────────── */
+(function initTheme() {
+  const stored = localStorage.getItem("theme");
+  const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+  const theme = stored || (prefersDark ? "dark" : "light");
+  document.documentElement.setAttribute("data-theme", theme);
+  const btn = document.getElementById("theme-toggle");
+  if (btn) btn.textContent = theme === "dark" ? "☀️" : "🌙";
+})();
+
+document.getElementById("theme-toggle").addEventListener("click", () => {
+  const current = document.documentElement.getAttribute("data-theme");
+  const next = current === "dark" ? "light" : "dark";
+  document.documentElement.setAttribute("data-theme", next);
+  localStorage.setItem("theme", next);
+  document.getElementById("theme-toggle").textContent = next === "dark" ? "☀️" : "🌙";
+});
+
+/* ───────────────────────────────────────────────────────────────────────────
+   Privacy Banner
+─────────────────────────────────────────────────────────────────────────── */
+(function initPrivacyBanner() {
+  const dismissed = localStorage.getItem("privacy-dismissed");
+  const banner = document.getElementById("privacy-banner");
+  if (dismissed) { banner.classList.add("hidden"); return; }
+  document.getElementById("privacy-dismiss").addEventListener("click", () => {
+    banner.classList.add("hidden");
+    localStorage.setItem("privacy-dismissed", "1");
+  });
+})();
+
+/* ───────────────────────────────────────────────────────────────────────────
+   Timestamp (local timezone)
+─────────────────────────────────────────────────────────────────────────── */
+function formatLocalTime(isoString) {
+  if (!isoString) return "";
+  try {
+    return new Intl.DateTimeFormat(navigator.language || "en", {
+      dateStyle: "medium",
+      timeStyle: "medium",
+    }).format(new Date(isoString));
+  } catch {
+    return isoString;
+  }
+}
+
+function updateHeaderTimestamp(isoString) {
+  const el = document.getElementById("header-timestamp");
+  if (el && isoString) {
+    el.innerHTML = `<span style="font-size:.7rem;">Last updated:</span> ${formatLocalTime(isoString)}`;
+  }
+}
+
+/* ───────────────────────────────────────────────────────────────────────────
+   Alert helpers
+─────────────────────────────────────────────────────────────────────────── */
+const alertArea = document.getElementById("alert-area");
+
+function showAlert(message, type = "error", id = "") {
+  const existing = id ? document.getElementById(id) : null;
+  if (existing) { existing.remove(); }
+
+  const icons = { error: "❌", warn: "⚠️", info: "ℹ️" };
+  const div = document.createElement("div");
+  div.className = `alert alert-${type}`;
+  if (id) div.id = id;
+  div.innerHTML = `<span>${icons[type] || "ℹ️"}</span><div>${escapeHtml(message)}</div>`;
+  alertArea.appendChild(div);
+  return div;
+}
+
+function clearAlerts() { alertArea.innerHTML = ""; }
+
+function escapeHtml(str) {
+  const map = { "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" };
+  return String(str).replace(/[&<>"']/g, (c) => map[c]);
+}
+
+/* ───────────────────────────────────────────────────────────────────────────
+   Map setup
+─────────────────────────────────────────────────────────────────────────── */
+let map = null;
+let marker = null;
+
+function initMap(lat, lng, isGps) {
+  const zoom = (lat !== 0 || lng !== 0) ? (isGps ? 15 : 10) : 2;
+
+  if (!map) {
+    map = L.map("map").setView([lat || 20, lng || 0], zoom);
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+      maxZoom: 19,
+    }).addTo(map);
+  } else {
+    map.flyTo([lat, lng], zoom, { duration: 1.2 });
+  }
+
+  if (marker) { map.removeLayer(marker); }
+
+  if (isGps) {
+    marker = L.circleMarker([lat, lng], {
+      radius: 10,
+      fillColor: "#10b981",
+      color: "#065f46",
+      weight: 2,
+      fillOpacity: 0.85,
+    }).addTo(map).bindPopup("📍 GPS Location").openPopup();
+  } else {
+    marker = L.circleMarker([lat, lng], {
+      radius: 12,
+      fillColor: "#3b82f6",
+      color: "#1d4ed8",
+      weight: 2,
+      fillOpacity: 0.7,
+    }).addTo(map).bindPopup("📡 Approximate IP Location").openPopup();
+  }
+}
+
+/* ───────────────────────────────────────────────────────────────────────────
+   Render helpers
+─────────────────────────────────────────────────────────────────────────── */
+function renderDataItem(label, value, mono) {
+  const valStr = (value !== null && value !== undefined && value !== "") ? value : "—";
+  return `
+    <div class="data-item">
+      <div class="data-label">${escapeHtml(label)}</div>
+      <div class="data-value${mono ? " mono" : ""}">${escapeHtml(String(valStr))}</div>
+    </div>`;
+}
+
+function renderGeoGrid(geo) {
+  const lat = geo.latitude;
+  const lng = geo.longitude;
+  const coordStr = (lat !== null && lng !== null) ? `${lat.toFixed(4)}, ${lng.toFixed(4)}` : null;
+
+  document.getElementById("geo-grid").innerHTML = [
+    renderDataItem("City", geo.city),
+    renderDataItem("Region", geo.region ? `${geo.region} (${geo.regionCode || ""})` : null),
+    renderDataItem("Country", geo.country),
+    renderDataItem("Timezone", geo.timezone),
+    renderDataItem("ISP", geo.isp),
+    renderDataItem("Data Center", geo.colo),
+    renderDataItem("Coordinates", coordStr),
+  ].join("");
+}
+
+function renderDeviceGrid(ua) {
+  document.getElementById("device-grid").innerHTML = [
+    renderDataItem("Browser", ua.browser ? `${ua.browser.name} ${ua.browser.version}` : null),
+    renderDataItem("OS", ua.os ? `${ua.os.name} ${ua.os.version}` : null),
+    renderDataItem("Device Type", ua.device),
+  ].join("");
+}
+
+function renderGpsCard(gps, merged) {
+  const card = document.getElementById("gps-card");
+  card.style.display = "";
+  document.getElementById("gps-grid").innerHTML = [
+    renderDataItem("Latitude",  gps.latitude  !== null ? gps.latitude.toFixed(6) : null),
+    renderDataItem("Longitude", gps.longitude !== null ? gps.longitude.toFixed(6) : null),
+    renderDataItem("Accuracy",  gps.accuracy  !== null ? `±${gps.accuracy.toFixed(1)} m` : null),
+    renderDataItem("Source",    merged ? merged.source : "gps"),
+  ].join("");
+}
+
+function renderToken(token) {
+  const el = document.getElementById("visitor-token");
+  el.classList.remove("skeleton");
+  el.textContent = token || "—";
+}
+
+function updateSourceBadge(isGps) {
+  const badge = document.getElementById("source-badge");
+  badge.className = `badge ${isGps ? "badge-gps" : "badge-ip"}`;
+  badge.innerHTML = `<span class="badge-dot"></span> ${isGps ? "GPS-precise location" : "IP-based approximate location"}`;
+}
+
+/* ───────────────────────────────────────────────────────────────────────────
+   API calls
+─────────────────────────────────────────────────────────────────────────── */
+async function fetchVisitorInfo() {
+  const res = await fetch(`${WORKER_URL}/api/visitor-info`, {
+    method: "GET",
+    headers: { "Accept": "application/json" },
+  });
+
+  if (!res.ok) {
+    let errMsg = `Worker returned ${res.status}`;
+    try { const j = await res.json(); errMsg = j.error || errMsg; } catch {}
+    throw new Error(errMsg);
+  }
+  return res.json();
+}
+
+async function postGpsData(latitude, longitude, accuracy) {
+  const body = { gpsLatitude: latitude, gpsLongitude: longitude };
+  if (accuracy !== null && accuracy !== undefined) body.accuracy = accuracy;
+
+  // Client-side fingerprint via X-Visitor-Fingerprint header (optional feature)
+  const fingerprint = buildFingerprint();
+
+  const res = await fetch(`${WORKER_URL}/api/visitor-info`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Accept": "application/json",
+      ...(fingerprint ? { "X-Visitor-Fingerprint": fingerprint } : {}),
+    },
+    body: JSON.stringify(body),
+  });
+
+  if (res.status === 429) {
+    const retryAfter = res.headers.get("Retry-After");
+    throw new Error(`Rate limit exceeded. Try again in ${retryAfter || 60} seconds.`);
+  }
+
+  if (!res.ok) {
+    let errMsg = `Worker returned ${res.status}`;
+    try {
+      const j = await res.json();
+      errMsg = j.error || errMsg;
+      if (j.details && Array.isArray(j.details)) errMsg += ": " + j.details.join(", ");
+    } catch {}
+    throw new Error(errMsg);
+  }
+  return res.json();
+}
+
+/* ───────────────────────────────────────────────────────────────────────────
+   Optional: client-side fingerprint (Feature 4.1)
+─────────────────────────────────────────────────────────────────────────── */
+function buildFingerprint() {
+  try {
+    const parts = [
+      screen.width, screen.height, screen.colorDepth,
+      Intl.DateTimeFormat().resolvedOptions().timeZone,
+      navigator.language,
+      navigator.hardwareConcurrency || 0,
+      navigator.deviceMemory || 0,
+    ].join("|");
+    // Simple djb2 hash (no crypto needed for client-side hint)
+    let hash = 5381;
+    for (let i = 0; i < parts.length; i++) {
+      hash = ((hash << 5) + hash) ^ parts.charCodeAt(i);
+      hash = hash >>> 0;
+    }
+    return hash.toString(16).padStart(8, "0");
+  } catch {
+    return null;
+  }
+}
+
+/* ───────────────────────────────────────────────────────────────────────────
+   Render full data
+─────────────────────────────────────────────────────────────────────────── */
+function renderVisitorData(data, isGps) {
+  if (!data) return;
+
+  updateHeaderTimestamp(data.timestamp);
+  updateSourceBadge(isGps);
+  renderToken(data.visitorToken);
+
+  const geo = data.merged
+    ? { ...data.ip_geo, latitude: data.merged.latitude, longitude: data.merged.longitude }
+    : data.ip_geo;
+
+  renderGeoGrid(geo);
+  renderDeviceGrid(data.userAgent);
+
+  const lat = geo.latitude;
+  const lng = geo.longitude;
+  if (lat !== null && lng !== null) {
+    initMap(lat, lng, isGps);
+  } else {
+    initMap(20, 0, false);
+  }
+
+  if (isGps && data.gps) {
+    renderGpsCard(data.gps, data.merged);
+  }
+
+  if (data.mock) {
+    showAlert("Worker running in local dev mode — geo data is mocked.", "warn", "mock-warning");
+  }
+}
+
+/* ───────────────────────────────────────────────────────────────────────────
+   GPS flow
+─────────────────────────────────────────────────────────────────────────── */
+const gpsBtn = document.getElementById("gps-btn");
+
+gpsBtn.addEventListener("click", async () => {
+  if (!("geolocation" in navigator)) {
+    showAlert("Geolocation is not supported by your browser.", "error");
+    return;
+  }
+
+  // Show spinner
+  gpsBtn.disabled = true;
+  gpsBtn.innerHTML = `<span class="spinner"></span> Requesting…`;
+
+  clearAlerts();
+
+  navigator.geolocation.getCurrentPosition(
+    async (pos) => {
+      const { latitude, longitude, accuracy } = pos.coords;
+      gpsBtn.innerHTML = `<span class="spinner"></span> Fetching…`;
+
+      try {
+        const result = await postGpsData(latitude, longitude, accuracy);
+        if (result.success && result.data) {
+          renderVisitorData(result.data, true);
+          gpsBtn.innerHTML = "✅ Location Updated";
+          setTimeout(() => {
+            gpsBtn.innerHTML = "📍 Refresh GPS";
+            gpsBtn.disabled = false;
+          }, 3000);
+        } else {
+          throw new Error(result.error || "Unexpected response");
+        }
+      } catch (err) {
+        showAlert(err.message || "Failed to fetch enriched location.", "error");
+        gpsBtn.innerHTML = "🔄 Retry GPS";
+        gpsBtn.disabled = false;
+      }
+    },
+    (err) => {
+      gpsBtn.innerHTML = "📍 Get Precise Location";
+      gpsBtn.disabled = false;
+
+      const msgs = {
+        1: "Location access denied. Showing network-based location.",
+        2: "Location unavailable. Showing network-based location.",
+        3: "Location request timed out. Showing network-based location.",
+      };
+      showAlert(msgs[err.code] || "Geolocation error.", err.code === 1 ? "warn" : "error");
+    },
+    { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+  );
+});
+
+/* ───────────────────────────────────────────────────────────────────────────
+   Initial load
+─────────────────────────────────────────────────────────────────────────── */
+async function init() {
+  try {
+    const result = await fetchVisitorInfo();
+    if (result.success && result.data) {
+      renderVisitorData(result.data, false);
+    } else {
+      throw new Error(result.error || "Unexpected response from worker");
+    }
+  } catch (err) {
+    let msg = err.message || "Failed to connect to the worker.";
+    if (msg.toLowerCase().includes("cors")) {
+      msg += " Make sure the Worker's ALLOWED_ORIGINS includes this page's origin.";
+    }
+    clearAlerts();
+
+    const alertEl = showAlert(msg, "error", "init-error");
+    // Retry button
+    const retryBtn = document.createElement("button");
+    retryBtn.className = "btn btn-primary";
+    retryBtn.style.marginTop = ".75rem";
+    retryBtn.textContent = "🔄 Retry";
+    retryBtn.addEventListener("click", () => { alertEl.remove(); init(); });
+    alertEl.appendChild(retryBtn);
+
+    // Reset skeletons to indicate failure
+    document.getElementById("visitor-token").textContent = "Failed to load";
+    document.getElementById("visitor-token").classList.remove("skeleton");
+  }
+}
+
+// Boot
+init();
+</script>
+</body>
+</html>
